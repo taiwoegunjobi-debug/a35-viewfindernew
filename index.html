@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<title>A35 Lens Finder</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body,#app{margin:0;width:100%;height:100%;overflow:hidden;background:#000;color:#fff;font-family:Arial,Helvetica,sans-serif}
+body{touch-action:manipulation}
+#app{position:fixed;inset:0}
+#camera{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;transform-origin:center center}
+#overlay{position:absolute;inset:0;pointer-events:none}
+#frame{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);height:min(100vw/2.39,100vh);border-top:1px solid rgba(255,255,255,.78);border-bottom:1px solid rgba(255,255,255,.78)}
+#frame:before,#frame:after{content:"";position:absolute;top:0;bottom:0;width:18px;border-color:rgba(255,255,255,.55);border-style:solid}
+#frame:before{left:0;border-width:1px 0 1px 1px}
+#frame:after{right:0;border-width:1px 1px 1px 0}
+#cross{position:absolute;left:50%;top:50%;width:20px;height:20px;transform:translate(-50%,-50%);opacity:.35}
+#cross:before,#cross:after{content:"";position:absolute;background:#fff}
+#cross:before{width:20px;height:1px;top:9px;left:0}
+#cross:after{width:1px;height:20px;left:9px;top:0}
+#top{position:absolute;top:max(10px,env(safe-area-inset-top));left:14px;right:14px;display:flex;justify-content:space-between;align-items:center;pointer-events:none;text-shadow:0 2px 5px #000}
+.label{font-size:13px;font-weight:700;letter-spacing:.3px;background:rgba(0,0,0,.42);padding:7px 9px;border-radius:5px}
+#bottom{position:absolute;left:0;right:0;bottom:0;padding:7px 12px max(9px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.82) 28%,rgba(0,0,0,.94));}
+#lenses{height:44px;display:flex;align-items:center;justify-content:center;gap:4px;overflow-x:auto;scrollbar-width:none}
+#lenses::-webkit-scrollbar{display:none}
+.lens{border:0;background:transparent;color:rgba(255,255,255,.72);font-size:13px;font-weight:700;min-width:49px;height:36px;border-radius:5px;padding:0 8px}
+.lens.active{background:#fff;color:#000}
+#shutterRow{display:flex;justify-content:flex-end;align-items:center;height:70px;padding-right:5px}
+#photo{width:58px;height:58px;border-radius:50%;border:3px solid #fff;background:rgba(255,255,255,.15);box-shadow:0 0 0 2px rgba(0,0,0,.4);padding:0}
+#photo:active{transform:scale(.93)}
+#status{position:absolute;left:14px;bottom:max(14px,env(safe-area-inset-bottom));font-size:10px;color:rgba(255,255,255,.6);pointer-events:none}
+#message{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:10;background:rgba(0,0,0,.82);border:1px solid rgba(255,255,255,.25);padding:13px 17px;border-radius:7px;text-align:center;font-size:13px;max-width:80%;display:block}
+#start{position:absolute;left:14px;bottom:88px;z-index:11;border:1px solid rgba(255,255,255,.5);background:rgba(0,0,0,.55);color:#fff;border-radius:6px;padding:9px 12px;font-weight:700}
+.hidden{display:none!important}
+@media(max-height:430px){
+ #top{top:6px}.label{font-size:11px;padding:5px 7px}
+ #lenses{height:38px}.lens{height:32px;min-width:45px;font-size:12px}
+ #shutterRow{height:58px}#photo{width:50px;height:50px}
+ #bottom{padding-bottom:5px}
+ #status{bottom:7px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="camera" autoplay playsinline muted></video>
+  <div id="overlay">
+    <div id="frame"></div>
+    <div id="cross"></div>
+  </div>
+
+  <div id="top">
+    <div class="label">A35</div>
+    <div class="label"><span id="lensReadout">50mm</span> · 2× · 2.39</div>
+  </div>
+
+  <div id="message">Tap START CAMERA</div>
+  <button id="start">START CAMERA</button>
+
+  <div id="bottom">
+    <div id="lenses"></div>
+    <div id="shutterRow">
+      <button id="photo" aria-label="Take reference photo"></button>
+    </div>
+  </div>
+
+  <div id="status">ALEXA 35 · SUPER 35 · MASTER ANAMORPHIC</div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+var video=document.getElementById("camera");
+var lensesEl=document.getElementById("lenses");
+var message=document.getElementById("message");
+var start=document.getElementById("start");
+var photo=document.getElementById("photo");
+var lensReadout=document.getElementById("lensReadout");
+var stream=null;
+var facing="environment";
+var selected=50;
+
+var lenses=[
+ {mm:28,aov:78.2,t:"1.9"},
+ {mm:35,aov:65.5,t:"1.9"},
+ {mm:40,aov:58.7,t:"1.9"},
+ {mm:50,aov:48.5,t:"1.9"},
+ {mm:60,aov:41.1,t:"1.9"},
+ {mm:75,aov:33.4,t:"1.9"},
+ {mm:100,aov:25.4,t:"1.9"},
+ {mm:135,aov:18.9,t:"1.9"},
+ {mm:180,aov:14.4,t:"2.8"}
+];
+
+function setMessage(text,show){
+ message.textContent=text;
+ message.classList.toggle("hidden",!show);
+}
+
+function getLens(){
+ for(var i=0;i<lenses.length;i++) if(lenses[i].mm===selected) return lenses[i];
+ return lenses[3];
+}
+
+function renderLenses(){
+ lensesEl.innerHTML="";
+ lenses.forEach(function(l){
+   var b=document.createElement("button");
+   b.type="button";
+   b.className="lens"+(l.mm===selected?" active":"");
+   b.textContent=l.mm;
+   b.setAttribute("aria-label",l.mm+" millimetre lens");
+   b.addEventListener("click",function(){
+     selected=l.mm;
+     renderLenses();
+     updateView();
+   });
+   lensesEl.appendChild(b);
+ });
+}
+
+function phoneHorizontalFov(){
+ return 82;
+}
+
+function zoomForLens(){
+ var phone=phoneHorizontalFov();
+ var target=getLens().aov;
+ return Math.max(1,Math.min(8,
+   Math.tan(phone*Math.PI/360)/Math.tan(target*Math.PI/360)
+ ));
+}
+
+function updateView(){
+ var l=getLens();
+ lensReadout.textContent=l.mm+"mm";
+ video.style.transform="scale("+zoomForLens()+")";
+}
+
+async function lockLandscape(){
+ try{
+   if(screen.orientation && screen.orientation.lock){
+     await screen.orientation.lock("landscape");
+   }
+ }catch(e){}
+}
+
+async function openCamera(){
+ if(!window.isSecureContext){
+   setMessage("Camera requires HTTPS. Open the Vercel address in Chrome.",true);
+   return;
+ }
+ if(!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia!=="function"){
+   setMessage("Camera access is unavailable in this browser. Use Chrome on Android.",true);
+   return;
+ }
+
+ try{
+   if(stream){
+     stream.getTracks().forEach(function(t){t.stop();});
+     stream=null;
+   }
+
+   setMessage("Opening camera…",true);
+
+   var constraints={
+     audio:false,
+     video:{
+       facingMode:{ideal:facing},
+       width:{ideal:1920},
+       height:{ideal:1080}
+     }
+   };
+
+   stream=await navigator.mediaDevices.getUserMedia(constraints);
+   video.srcObject=stream;
+   await video.play();
+   await lockLandscape();
+
+   setMessage("",false);
+   start.textContent="RESTART";
+   updateView();
+ }catch(e){
+   console.error("Camera error",e);
+   var n=e && e.name ? e.name : "";
+   var msg={
+     NotAllowedError:"Camera permission denied. Allow camera access for this site.",
+     NotFoundError:"No camera was found.",
+     NotReadableError:"Camera is busy. Close other camera apps.",
+     SecurityError:"Camera blocked by browser security.",
+     OverconstrainedError:"That camera mode is unavailable."
+   }[n] || "Camera could not start.";
+   setMessage(msg,true);
+ }
+}
+
+function takePhoto(){
+ if(!stream || video.readyState<2){
+   setMessage("Start the camera first.",true);
+   return;
+ }
+
+ try{
+   var l=getLens();
+   var vw=video.videoWidth, vh=video.videoHeight;
+   var zoom=zoomForLens();
+
+   /*
+    Reproduce the same centre crop seen in the live view.
+    Then extract the 2.39:1 monitoring frame.
+   */
+   var visibleW=vw/zoom;
+   var visibleH=vh/zoom;
+   var targetW=visibleH*2.39;
+   if(targetW>visibleW) targetW=visibleW;
+
+   var sx=(vw-visibleW)/2 + (visibleW-targetW)/2;
+   var sy=(vh-visibleH)/2;
+
+   var outW=1920;
+   var outH=Math.round(outW/2.39);
+   var out=document.createElement("canvas");
+   out.width=outW;
+   out.height=outH;
+
+   var c=out.getContext("2d");
+   c.drawImage(video,sx,sy,targetW,visibleH,0,0,outW,outH);
+
+   out.toBlob(function(blob){
+     if(!blob){
+       setMessage("Photo capture failed.",true);
+       return;
+     }
+     var url=URL.createObjectURL(blob);
+     var a=document.createElement("a");
+     a.href=url;
+     a.download="A35_"+l.mm+"mm_2x_2.39_"+Date.now()+".jpg";
+     document.body.appendChild(a);
+     a.click();
+     a.remove();
+     setTimeout(function(){URL.revokeObjectURL(url);},1500);
+   },"image/jpeg",.94);
+
+ }catch(e){
+   console.error("Photo error",e);
+   setMessage("Photo capture failed.",true);
+ }
+}
+
+start.addEventListener("click",openCamera);
+photo.addEventListener("click",takePhoto);
+
+document.getElementById("app").addEventListener("dblclick",function(e){
+ if(e.target===video) openCamera();
+});
+
+renderLenses();
+updateView();
+})();
+</script>
+</body>
+</html>
