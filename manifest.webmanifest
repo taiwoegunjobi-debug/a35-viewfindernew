@@ -1,0 +1,10 @@
+{
+"name":"A35 Anamorphic Viewfinder",
+"short_name":"A35 VF",
+"start_url":".",
+"display":"fullscreen",
+"background_color":"#000000",
+"theme_color":"#000000",
+"orientation":"landscape",
+"icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
